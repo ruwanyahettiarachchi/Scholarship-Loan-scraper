@@ -13,6 +13,7 @@ from pathlib import Path
 # Import individual scrapers
 from scrapers.sliit_scraper import SLIITScholarshipScraper
 from scrapers.mohe_scraper import MOHEScholarshipScraper
+from scrapers.scholarship_positions_scraper import ScholarshipPositionsScraper
 
 # Configure logging
 logging.basicConfig(
@@ -136,6 +137,8 @@ def main():
     # Register all scrapers
     master.register_scraper(SLIITScholarshipScraper, "SLIIT Scholarships")
     master.register_scraper(MOHEScholarshipScraper, "MOHE Scholarships")
+    master.register_scraper(ScholarshipPositionsScraper,
+                            "Scholarship Positions - Sri Lanka")
 
     # Add more scrapers here as you create them:
     # master.register_scraper(AnotherScraper, "Another Source")
