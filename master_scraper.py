@@ -15,6 +15,8 @@ from scrapers.sliit_scraper import SLIITScholarshipScraper
 from scrapers.mohe_scraper import MOHEScholarshipScraper
 from scrapers.scholarship_positions_scraper import ScholarshipPositionsScraper
 from scrapers.ou_scholarships_scraper import OUScholarshipsScraper
+from scrapers.mohe_student_loans_scraper import MOHEStudentLoansScraper
+from scrapers.bank_education_loans_scraper import BankEducationLoansScraper
 
 # Configure logging
 logging.basicConfig(
@@ -143,6 +145,10 @@ def main():
     master.register_scraper(OUScholarshipsScraper,
                             "Open University Scholarships")
 
+    # Loans
+    master.register_scraper(MOHEStudentLoansScraper, "MOHE Student Loans")
+    master.register_scraper(BankEducationLoansScraper,
+                            "Bank Education Loans (All 6 Banks)")
 
     # Add more scrapers here as you create them:
     # master.register_scraper(AnotherScraper, "Another Source")
