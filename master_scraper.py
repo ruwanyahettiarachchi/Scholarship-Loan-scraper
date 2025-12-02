@@ -17,6 +17,7 @@ from scrapers.scholarship_positions_scraper import ScholarshipPositionsScraper
 from scrapers.ou_scholarships_scraper import OUScholarshipsScraper
 from scrapers.mohe_student_loans_scraper import MOHEStudentLoansScraper
 from scrapers.bank_education_loans_scraper import BankEducationLoansScraper
+from scrapers.daad_scholarships_scraper import DAADScholarshipScraper
 
 # Configure logging
 logging.basicConfig(
@@ -143,7 +144,9 @@ def main():
     master.register_scraper(ScholarshipPositionsScraper,
                             "Scholarship Positions (Sri Lanka)")
     master.register_scraper(OUScholarshipsScraper,
-                            "Open University Scholarships")
+                            "Open University Scholarships"),
+    master.register_scraper(DAADScholarshipScraper,
+                            "DAAD Scholarships (Germany)")
 
     # Loans
     master.register_scraper(MOHEStudentLoansScraper, "MOHE Student Loans")
