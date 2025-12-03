@@ -4,21 +4,16 @@ Website: https://www.daad-sri-lanka.org/en/find-funding/scholarship-database/
 Scrapes scholarship opportunities for Sri Lankan students from DAAD
 """
 
-import requests
-from bs4 import BeautifulSoup
+import time
 import pandas as pd
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import time
 import logging
 from datetime import datetime
 import re
-import json
 
 # Configure logging
 logging.basicConfig(
@@ -36,370 +31,222 @@ class DAADScholarshipScraper:
     def __init__(self):
         self.data = []
         self.source = 'DAAD Sri Lanka'
-        self.base_url = "https://www.daad-sri-lanka.org"
-        self.search_url = "https://www.daad-sri-lanka.org/en/find-funding/scholarship-database/?type=a&origin=195&target=195&status=0&intention=0&subject=0&q="
-        self.options = webdriver.ChromeOptions()
-        self.options.add_argument('--headless')
-        self.options.add_argument('--no-sandbox')
-        self.options.add_argument('--disable-dev-shm-usage')
-        self.options.add_argument(
-            '--disable-blink-features=AutomationControlled')
-        self.options.add_argument('--window-size=1920,1080')
 
     def scrape(self):
-        """Main scraping method"""
-        logger.info(
-            f"Starting DAAD Scholarship Scraping from {self.search_url}")
+        """Main scraping method - keeps user's working approach"""
+        print("\n" + "="*70)
+        print("DAAD SCHOLARSHIP SCRAPER")
+        print("="*70)
+        print("Setting up Selenium WebDriver...")
+
+        # Setup Selenium (same as user's code)
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument(
+            'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=options
+        )
+
+        # Base URL (same as user's code)
+        base_url = "https://www.daad-sri-lanka.org/en/find-funding/scholarship-database/"
+        base_params = "?type=a&origin=195&target=195&status=0&intention=0&subject=0&q="
+
+        page = 1
+        total_found = 0
+
+        print("Starting scraping process...")
 
         try:
-            # Get scholarship links from search results
-            scholarship_links = self._get_scholarship_links()
-            logger.info(f"Found {len(scholarship_links)} scholarship programs")
+            while True:
+                # Construct URL with pagination (same as user's code)
+                url = f"{base_url}{base_params}&pg={page}"
+                print(f"\nScraping Page {page}: {url}")
 
-            # Scrape each scholarship page
-            for idx, link in enumerate(scholarship_links, 1):
-                logger.info(f"Scraping {idx}/{len(scholarship_links)}: {link}")
-                scholarship = self._scrape_scholarship_page(link)
-                if scholarship['name'] and scholarship['name'] != 'N/A':
-                    self.data.append(scholarship)
-                time.sleep(2)  # Be respectful to the server
+                driver.get(url)
+                time.sleep(4)  # Wait for JavaScript
 
-            logger.info(
-                f"DAAD scraping completed. Found {len(self.data)} scholarships")
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+
+                # Extract scholarship entries (same approach as user's code)
+                entries_found_on_page = 0
+
+                for h3 in soup.find_all('h3'):
+                    link_tag = h3.find('a')
+
+                    if link_tag and link_tag.get('href', '').startswith('?type=a'):
+                        # Extract basic info
+                        title = link_tag.get_text(strip=True)
+                        relative_link = link_tag['href']
+                        full_link = f"{base_url}{relative_link}"
+
+                        # Get parent container (same as user's code)
+                        container = h3.find_parent()
+                        container_text = container.get_text(
+                            " | ", strip=True) if container else ""
+
+                        # ENHANCED: Extract all available details
+                        scholarship = self._extract_all_details(
+                            title,
+                            full_link,
+                            container,
+                            container_text
+                        )
+
+                        self.data.append(scholarship)
+                        entries_found_on_page += 1
+
+                        # Show progress
+                        if entries_found_on_page % 10 == 0:
+                            print(
+                                f"  Extracted {entries_found_on_page} scholarships so far...")
+
+                if entries_found_on_page == 0:
+                    print("No entries found on this page. Stopping.")
+                    break
+
+                print(
+                    f"✓ Found {entries_found_on_page} scholarships on page {page}.")
+                total_found += entries_found_on_page
+                page += 1
+
+                # Safety break
+                if page > 30:
+                    print("Reached maximum page limit (30). Stopping.")
+                    break
 
         except Exception as e:
             logger.error(f"Error during scraping: {e}")
-
-    def _get_scholarship_links(self):
-        """Get all scholarship links from the database search results"""
-        links = []
-
-        try:
-            driver = webdriver.Chrome(
-                service=Service(ChromeDriverManager().install()),
-                options=self.options
-            )
-            driver.get(self.search_url)
-            time.sleep(5)
-
-            # Wait for results to load
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_all_elements_located(
-                        (By.CLASS_NAME, "c-search-result"))
-                )
-            except TimeoutException:
-                logger.warning("Timeout waiting for search results")
-
-            # Scroll to load all results
-            last_height = driver.execute_script(
-                "return document.body.scrollHeight")
-            while True:
-                driver.execute_script(
-                    "window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(2)
-                new_height = driver.execute_script(
-                    "return document.body.scrollHeight")
-                if new_height == last_height:
-                    break
-                last_height = new_height
-
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
-
-            # Find all scholarship result items
-            results = soup.find_all(
-                'div', class_=['c-search-result', 'search-result'])
-
-            if not results:
-                # Try alternative selector
-                results = soup.find_all('article')
-
-            logger.info(f"Found {len(results)} result items")
-
-            for result in results:
-                # Find link to scholarship detail page
-                link_elem = result.find('a', href=True)
-                if link_elem:
-                    href = link_elem.get('href')
-                    if href:
-                        # Make absolute URL
-                        if href.startswith('/'):
-                            full_url = self.base_url + href
-                        elif href.startswith('http'):
-                            full_url = href
-                        else:
-                            full_url = self.base_url + '/' + href
-
-                        if full_url not in links:
-                            links.append(full_url)
-
-            driver.quit()
-            logger.info(f"Extracted {len(links)} unique scholarship links")
-
-        except Exception as e:
-            logger.error(f"Error getting scholarship links: {e}")
-            try:
-                driver.quit()
-            except:
-                pass
-
-        return links
-
-    def _scrape_scholarship_page(self, scholarship_url):
-        """Scrape individual scholarship page"""
-        scholarship = {
-            'name': 'N/A',
-            'description': '',
-            'eligibility': 'N/A',
-            'funding_amount': 'N/A',
-            'deadline': 'N/A',
-            'contact': 'N/A',
-            'application_url': scholarship_url,
-            'source': self.source,
-            'url': self.search_url,
-            'scrape_date': datetime.now().isoformat(),
-            'program_type': 'N/A',
-            'target_group': 'N/A',
-            'subject_area': 'N/A',
-            'study_level': 'N/A',
-            'duration': 'N/A',
-            'country': 'Germany',
-            'language_requirements': 'N/A'
-        }
-
-        try:
-            driver = webdriver.Chrome(
-                service=Service(ChromeDriverManager().install()),
-                options=self.options
-            )
-            driver.get(scholarship_url)
-            time.sleep(3)
-
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            print(f"✗ An error occurred: {e}")
+        finally:
             driver.quit()
 
-            # Extract title
-            title = soup.find('h1')
-            if title:
-                scholarship['name'] = title.get_text(strip=True)
+        print(f"\n{'='*70}")
+        print(f"Total scholarships scraped: {total_found}")
+        print(f"{'='*70}\n")
 
-            # Extract main content
-            content = soup.find(
-                'div', class_=['c-content', 'content', 'main-content'])
-            if not content:
-                content = soup.find('article')
+        logger.info(f"DAAD scraping completed. Total: {total_found}")
 
-            if content:
-                full_text = content.get_text()
+    def _extract_all_details(self, title, link, container, container_text):
+        """Enhanced extraction to get ALL scholarship details"""
 
-                # Extract description (first paragraph or summary)
-                summary = content.find(
-                    'div', class_=['summary', 'intro', 'description'])
-                if summary:
-                    scholarship['description'] = summary.get_text(strip=True)[
-                        :500]
-                else:
-                    paragraphs = content.find_all('p')
-                    if paragraphs:
-                        scholarship['description'] = ' '.join(
-                            [p.get_text(strip=True) for p in paragraphs[:2]])[:500]
+        # Helper function to extract field (from user's code)
+        def get_field(text, label):
+            if label in text:
+                try:
+                    part = text.split(label)[1].split('|')[0]
+                    return part.strip()
+                except IndexError:
+                    return "N/A"
+            return "N/A"
 
-                # Extract structured information
-                scholarship = self._extract_structured_info(
-                    content, scholarship, full_text)
+        # Basic fields (same as user's code)
+        status = get_field(container_text, "Status:")
+        subject = get_field(container_text, "Subject area:")
+        deadline = get_field(container_text, "Application deadline:")
 
-                # Extract deadline
-                scholarship['deadline'] = self._extract_deadline(full_text)
+        # ENHANCED: Extract additional fields
 
-                # Extract eligibility
-                scholarship['eligibility'] = self._extract_eligibility(
-                    content, full_text)
+        # Description (look for paragraphs in container)
+        description = "N/A"
+        desc_elem = container.find('p') if container else None
+        if desc_elem:
+            description = desc_elem.get_text(strip=True)[:500]
+        elif container:
+            # Get first substantial text block
+            text_blocks = [t.strip()
+                           for t in container.stripped_strings if len(t.strip()) > 50]
+            if text_blocks:
+                description = text_blocks[0][:500]
 
-                # Extract funding details
-                scholarship['funding_amount'] = self._extract_funding(
-                    full_text)
+        # Target group / Eligibility
+        eligibility = []
+        if status != "N/A":
+            eligibility.append(f"• Status: {status}")
+        if subject != "N/A":
+            eligibility.append(f"• Subject: {subject}")
 
-                # Extract contact
-                scholarship['contact'] = self._extract_contact(full_text)
+        eligibility_text = '\n'.join(eligibility) if eligibility else "N/A"
 
-        except Exception as e:
-            logger.warning(f"Error scraping {scholarship_url}: {e}")
-            try:
-                driver.quit()
-            except:
-                pass
+        # Study level (infer from status)
+        study_level = "N/A"
+        if status != "N/A":
+            status_lower = status.lower()
+            if 'doctoral' in status_lower or 'phd' in status_lower:
+                study_level = "Doctoral/PhD"
+            elif 'master' in status_lower:
+                study_level = "Master's"
+            elif 'bachelor' in status_lower:
+                study_level = "Bachelor's"
+            elif 'graduate' in status_lower:
+                study_level = "Graduate"
 
-        return scholarship
+        # Program type
+        program_type = "N/A"
+        if 'research' in title.lower():
+            program_type = "Research Grant"
+        elif 'study' in title.lower() or 'scholarship' in title.lower():
+            program_type = "Study Scholarship"
+        elif 'summer' in title.lower():
+            program_type = "Summer Program"
 
-    def _extract_structured_info(self, content, scholarship, full_text):
-        """Extract structured information from content"""
-        try:
-            # Look for key-value pairs or labeled sections
-            labels = content.find_all(['dt', 'strong', 'b', 'label'])
-
-            for label in labels:
-                label_text = label.get_text(strip=True).lower()
-
-                # Get the value (next sibling or parent's next sibling)
-                value_elem = label.find_next(['dd', 'p', 'span', 'div'])
-                if value_elem:
-                    value = value_elem.get_text(strip=True)
-
-                    # Program type
-                    if 'type' in label_text or 'programme type' in label_text:
-                        scholarship['program_type'] = value
-
-                    # Target group
-                    elif 'target group' in label_text or 'status' in label_text or 'who' in label_text:
-                        scholarship['target_group'] = value
-
-                    # Subject area
-                    elif 'subject' in label_text or 'field' in label_text:
-                        scholarship['subject_area'] = value
-
-                    # Study level
-                    elif 'level' in label_text or 'degree' in label_text:
-                        scholarship['study_level'] = value
-
-                    # Duration
-                    elif 'duration' in label_text or 'period' in label_text:
-                        scholarship['duration'] = value
-
-                    # Language
-                    elif 'language' in label_text:
-                        scholarship['language_requirements'] = value
-
-            # Extract from full text if not found
-            if scholarship['target_group'] == 'N/A':
-                if any(word in full_text.lower() for word in ['doctoral', 'phd', 'doctorate']):
-                    scholarship['target_group'] = 'Doctoral candidates/PhD students'
-                elif 'master' in full_text.lower():
-                    scholarship['target_group'] = 'Master students'
-                elif 'bachelor' in full_text.lower():
-                    scholarship['target_group'] = 'Bachelor students'
-                elif 'graduate' in full_text.lower():
-                    scholarship['target_group'] = 'Graduates'
-
-            if scholarship['study_level'] == 'N/A':
-                if 'doctoral' in full_text.lower() or 'phd' in full_text.lower():
-                    scholarship['study_level'] = 'Doctoral/PhD'
-                elif 'master' in full_text.lower():
-                    scholarship['study_level'] = "Master's"
-                elif 'bachelor' in full_text.lower():
-                    scholarship['study_level'] = "Bachelor's"
-
-        except Exception as e:
-            logger.warning(f"Error extracting structured info: {e}")
-
-        return scholarship
-
-    def _extract_deadline(self, text):
-        """Extract application deadline"""
-        # Look for deadline patterns
-        deadline_patterns = [
-            r'(?:deadline|application deadline|closing date)[:\s]+([^\n]+?)(?:\n|$)',
-            r'(\d{1,2}[./]\d{1,2}[./]\d{2,4})',
-            r'(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})',
+        # Duration (look for duration info)
+        duration = "N/A"
+        duration_patterns = [
+            r'(\d+)\s*(?:month|months|mo)',
+            r'(\d+)\s*(?:year|years|yr)',
         ]
-
-        for pattern in deadline_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+        for pattern in duration_patterns:
+            match = re.search(pattern, container_text, re.IGNORECASE)
             if match:
-                deadline = match.group(1) if len(
-                    match.groups()) > 0 else match.group(0)
-                return deadline.strip()[:100]
-
-        return 'N/A'
-
-    def _extract_eligibility(self, content, full_text):
-        """Extract eligibility criteria"""
-        eligibility_info = []
-
-        # Look for eligibility section
-        for heading in content.find_all(['h2', 'h3', 'h4', 'strong']):
-            heading_text = heading.get_text(strip=True).lower()
-            if any(keyword in heading_text for keyword in ['eligibility', 'requirement', 'who can apply', 'qualification']):
-                # Get content after heading
-                current = heading.find_next()
-                for _ in range(10):
-                    if not current:
-                        break
-
-                    if current.name in ['h2', 'h3', 'h4']:
-                        break
-
-                    text = current.get_text(strip=True)
-                    if text and len(text) > 10:
-                        if current.name == 'li':
-                            eligibility_info.append(f"• {text}")
-                        elif current.name == 'p':
-                            eligibility_info.append(text)
-
-                    current = current.find_next()
-
+                duration = match.group(0)
                 break
 
-        # If no section found, look for key phrases
-        if not eligibility_info:
-            if 'doctoral' in full_text.lower():
-                eligibility_info.append("• Doctoral candidates/PhD students")
-            if 'master' in full_text.lower():
-                eligibility_info.append(
-                    "• Master's degree holders or students")
-            if 'graduate' in full_text.lower():
-                eligibility_info.append("• University graduates")
+        # Funding amount (look for money references)
+        funding_amount = "N/A"
+        if '€' in container_text or 'EUR' in container_text:
+            amount_match = re.search(r'€\s*([0-9,]+)', container_text)
+            if amount_match:
+                funding_amount = f"€{amount_match.group(1)} per month"
+        elif 'monthly allowance' in container_text.lower() or 'stipend' in container_text.lower():
+            funding_amount = "Monthly stipend provided"
+        elif 'fully funded' in container_text.lower():
+            funding_amount = "Fully funded"
 
-        if eligibility_info:
-            return '\n'.join(eligibility_info[:10])
+        # Build comprehensive scholarship record
+        scholarship = {
+            'name': title,
+            'description': description,
+            'eligibility': eligibility_text,
+            'funding_amount': funding_amount,
+            'deadline': deadline,
+            'contact': 'DAAD Sri Lanka - info@daad-sri-lanka.org',
+            'application_url': link,
+            'source': self.source,
+            'url': 'https://www.daad-sri-lanka.org/en/find-funding/scholarship-database/',
+            'scrape_date': datetime.now().isoformat(),
 
-        return 'N/A'
+            # Additional fields
+            'status': status,
+            'subject_area': subject,
+            'study_level': study_level,
+            'program_type': program_type,
+            'duration': duration,
+            'target_group': status,
+            'country': 'Germany',
+            'language_requirements': 'Varies by program'
+        }
 
-    def _extract_funding(self, text):
-        """Extract funding amount details"""
-        # Look for funding/grant/scholarship amount
-        funding_patterns = [
-            r'(?:monthly|per month)[:\s]*€?\s*([0-9,]+)',
-            r'€\s*([0-9,]+)',
-            r'([0-9,]+)\s*(?:EUR|Euro)',
-        ]
-
-        for pattern in funding_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                amount = match.group(1)
-                return f"€{amount} per month (approx.)"
-
-        # Check for general funding description
-        if 'monthly allowance' in text.lower() or 'stipend' in text.lower():
-            return 'Monthly stipend provided (contact for details)'
-
-        if 'fully funded' in text.lower() or 'full scholarship' in text.lower():
-            return 'Fully funded'
-
-        return 'N/A'
-
-    def _extract_contact(self, text):
-        """Extract contact information"""
-        # Look for email
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-        if email_match:
-            return email_match.group(0)
-
-        # Look for contact section
-        if 'contact' in text.lower():
-            lines = text.split('\n')
-            for i, line in enumerate(lines):
-                if 'contact' in line.lower():
-                    # Return next few lines
-                    contact_info = ' '.join(lines[i:i+3])
-                    return contact_info[:150]
-
-        return 'DAAD Sri Lanka - https://www.daad-sri-lanka.org'
+        return scholarship
 
     def save_to_csv(self, filename=None):
         """Save data to CSV format"""
         if not self.data:
-            logger.warning("No data to save")
+            print("✗ No data to save")
             return
 
         if filename is None:
@@ -407,63 +254,77 @@ class DAADScholarshipScraper:
 
         df = pd.DataFrame(self.data)
         df.to_csv(filename, index=False, encoding='utf-8')
+        print(f"\n✓ CSV saved: {filename}")
+        print(f"✓ Total records: {len(self.data)}")
         logger.info(f"Saved {len(self.data)} scholarships to {filename}")
-        print(f"✓ CSV saved: {filename}")
         return filename
 
     def save_to_json(self, filename=None):
         """Save data to JSON format"""
         if not self.data:
-            logger.warning("No data to save")
             return
 
         if filename is None:
             filename = f'data/daad_scholarships_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
 
+        import json
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved {len(self.data)} scholarships to {filename}")
         print(f"✓ JSON saved: {filename}")
+        logger.info(f"Saved {len(self.data)} scholarships to {filename}")
         return filename
 
     def display_summary(self):
         """Display scraping summary"""
+        if not self.data:
+            return
+
+        df = pd.DataFrame(self.data)
+
         print("\n" + "="*70)
-        print("DAAD SCHOLARSHIPS - SCRAPING SUMMARY")
+        print("SCRAPING SUMMARY")
         print("="*70)
         print(f"Total Records: {len(self.data)}")
         print(f"Source: {self.source}")
-        print(f"Scraped Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        if self.data:
-            df = pd.DataFrame(self.data)
-            print(f"\nColumns: {list(df.columns)}")
+        print(f"\nColumns ({len(df.columns)}):")
+        print(", ".join(df.columns))
 
-            print("\n=== FIRST 5 SCHOLARSHIPS ===")
-            for idx, row in df.head(5).iterrows():
-                print(f"\n{idx+1}. {row['name']}")
-                print(f"   Target: {row['target_group']}")
-                print(f"   Level: {row['study_level']}")
-                print(f"   Deadline: {row['deadline']}")
-                print(f"   Funding: {row['funding_amount']}")
+        print("\n=== FIRST 5 SCHOLARSHIPS ===")
+        for idx, row in df.head(5).iterrows():
+            print(f"\n{idx+1}. {row['name'][:65]}")
+            print(f"   Status: {row['status']}")
+            print(f"   Subject: {row['subject_area']}")
+            print(f"   Deadline: {row['deadline']}")
+            print(f"   Link: {row['application_url']}")
 
-            # Distribution
-            if 'target_group' in df.columns:
-                print("\n=== BY TARGET GROUP ===")
-                print(df['target_group'].value_counts().to_string())
+        # Distribution by status
+        print("\n=== BY STATUS/TARGET GROUP ===")
+        status_counts = df['status'].value_counts().head(10)
+        for status, count in status_counts.items():
+            print(f"  {status}: {count}")
 
-            if 'study_level' in df.columns:
-                print("\n=== BY STUDY LEVEL ===")
-                print(df['study_level'].value_counts().to_string())
+        # Distribution by subject
+        print("\n=== BY SUBJECT AREA (Top 10) ===")
+        subject_counts = df['subject_area'].value_counts().head(10)
+        for subject, count in subject_counts.items():
+            print(f"  {subject}: {count}")
+
+        # Data completeness
+        print("\n=== DATA QUALITY ===")
+        print(f"With deadline: {(df['deadline'] != 'N/A').sum()}/{len(df)}")
+        print(
+            f"With description: {(df['description'] != 'N/A').sum()}/{len(df)}")
+        print(
+            f"With subject area: {(df['subject_area'] != 'N/A').sum()}/{len(df)}")
+        print(
+            f"With funding info: {(df['funding_amount'] != 'N/A').sum()}/{len(df)}")
 
         print("="*70 + "\n")
 
 
 def main():
     """Main execution function"""
-    print("Starting DAAD Scholarship Scraper...")
-    print("This may take several minutes as it scrapes each scholarship page\n")
-
     scraper = DAADScholarshipScraper()
     scraper.scrape()
 
@@ -472,8 +333,7 @@ def main():
         scraper.save_to_json()
         scraper.display_summary()
     else:
-        logger.warning("No scholarships were scraped")
-        print("✗ No scholarships were scraped. Please check the website or logs.")
+        print("✗ No scholarships were scraped")
 
 
 if __name__ == "__main__":
